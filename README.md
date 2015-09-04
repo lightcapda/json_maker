@@ -1,7 +1,13 @@
 # json_maker
-For generating large amounts of semi-randomized json from templates
+For generating large amounts of semi-randomized json from templates.
 
-# Instructions
+## Requirements
+[Python3+](https://www.python.org/download/releases/3.4.3/) & various standard libraries
+
+## Installation
+json_maker can just be run from this directory with just `python3 json_maker`.  If you wish, json_maker can also be installed to your command-line binary directory (eg, /usr/bin on Mac or Linux) by creating a symlink to this local version.
+
+## Instructions
 ```
 usage: json_maker [-h] [--copies COPIES] [--copy_sleep COPY_SLEEP]
                   [--length LENGTH] [--combine] [--whitespace] [--digits]
