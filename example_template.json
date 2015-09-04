@@ -1,0 +1,7 @@
+{
+    "a default string": "<<string[0]>>",
+    "first 3 characters of a default string": "<<string[0]:.3>>",
+    "a 10 character integer": <<integer[0]:.10>>,
+    "a different 10 character integer": <<integer[1]:.10>>,
+    "timestamp": <<time>>
+}

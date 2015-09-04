@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+
+import json, time, string, random, argparse, copy
+
+MAX_LENGTH = 100
+
+COPIES=1
+COPY_SLEEP=0.1
+COMBINE_COPIES = False
+
+STRINGS_INCLUDE_WHITESPACE = False
+STRINGS_INCLUDE_DIGITS = False
+
+STRING_KEYWORD = "string"
+INTEGER_KEYWORD = "integer"
+TIMESTAMP_KEYWORD = "time"
+
+STRING_CHARSET = string.ascii_letters
+INTEGER_CHARSET = string.digits
+
+OUTPUT_FILENAME = "output"
+OUTPUT_JSON_KEY = "output"
+OUTPUT_EXTENSION = ".json"
+
+KEYWORD_MARKER = "#_*" #unique string of characters used to identify and count the number of keywords
+                        # in a template so the right number of unique strings are generated
+
+REPLACEMENT_PAIRS = [("{", "{{"),
+                    ("}", "}}"),
+                    ("<<", "{{{0}".format(KEYWORD_MARKER)),
+                    (">>", "}"),
+                    ("\n", "")]
+
+INSTRUCTIONS = """This program generates randomized json structures from a template.  
+These are the formatting keywords that can be included in a json template which gets fed to json_maker
+
+    <<TYPE[NUM]:.LENGTH>> represents a random string to be replaced by json_maker. The formatting options are:
+
+        'TYPE' - Indicates the type of random string to use, may be one of: {keywords}
+            '{string_keyword}' - Random selected characters from the set of '{string_characters}'
+                (character set may be manipulated with optional parameters)
+            '{integer_keyword}' - Random selected characters from the set of '{integer_characters}'
+            '{timestamp_keyword}' - Unique (within a second) floating point non-idempotent timestamp
+
+        'NUM' - The occurance of the type.  Must be an integer between 0 and n.  All types of the same occurance will 
+            be identical values, different occurances are likely to be different but not necessarily.
+            Eg, "The <<{string_keyword}[0]>> said the car needed a new <<{string_keyword}[1]>>,
+            but the <<{string_keyword}[0]>> didn't have any <<{string_keyword}[1]>>'s in stock" would replace both '1'
+            occurances with the same value and both '0' occurances with the same value
+
+        ':.LENGTH' [OPTIONAL] - Truncates the string to the given LENGTH of characters.
+            {timestamp_keyword} types will have a maximum length of {timestamp_length}
+            All other characters have a maximum length of {max_length}
+            If not specified, {string_keyword} and {integer_keyword} types default to {max_length}
+
+            """.format(**{"keywords": [STRING_KEYWORD, INTEGER_KEYWORD, TIMESTAMP_KEYWORD],
+        "string_keyword": STRING_KEYWORD,
+        "integer_keyword": INTEGER_KEYWORD,
+        "timestamp_keyword": TIMESTAMP_KEYWORD,
+        "string_characters": STRING_CHARSET,
+        "integer_characters": INTEGER_CHARSET,
+        "timestamp_length": len(str(time.time())),
+        "max_length": MAX_LENGTH})
+
+
+parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+                    description=INSTRUCTIONS)
+
+parser.add_argument('json_template', type=argparse.FileType(),
+                   help='json file to use as a template, must be properly formatted json with exceptions, see --help for details')
+
+parser.add_argument('--copies', type=int, default=COPIES,
+                   help='Number of copies of json to generate from json_template, default is {0}'.format(COPIES))
+parser.add_argument('--copy_sleep', type=float, default=COPY_SLEEP,
+                   help='Sleep between multiple copies, useful to space out <<{0}>> types.  Default is {1} seconds'.format(TIMESTAMP_KEYWORD, COPY_SLEEP))
+parser.add_argument('--length', type=int, default=MAX_LENGTH,
+                   help='Default (and max) length of random values, default is {0} characters'.format(MAX_LENGTH))
+
+parser.add_argument('--combine', action="store_true", default=COMBINE_COPIES,
+                   help='Combines the number of json copies into a single json file as a list of items. Default is false, \
+                   in which case multiple files are generated from the same template, each with different randomized strings \
+                   and a number appended.')
+parser.add_argument('--whitespace', action="store_true", default=STRINGS_INCLUDE_WHITESPACE,
+                   help='Adds whitespace characters to randomized strings')
+parser.add_argument('--digits', action="store_true", default=STRINGS_INCLUDE_DIGITS,
+                   help='Adds the characters "{0}" to randomized strings, has no impact on {1} types'.format(string.digits, INTEGER_KEYWORD))
+
+parser.add_argument('--string_keyword', type=str, default=STRING_KEYWORD,
+                   help='Sets the string keyword for templates (see above), default is {0}'.format(STRING_KEYWORD))
+parser.add_argument('--integer_keyword', type=str, default=INTEGER_KEYWORD,
+                   help='Sets the integer keyword for templates (see above), default is {0}'.format(INTEGER_KEYWORD))
+parser.add_argument('--time_keyword', type=str, default=TIMESTAMP_KEYWORD,
+                   help='Sets the timestamp keyword for templates (see above), default is {0}'.format(TIMESTAMP_KEYWORD))
+
+parser.add_argument('--filename', type=str, default=OUTPUT_FILENAME,
+                   help='Name of the filename of the json output created, default is "{0}".  If multiple copies are specified \
+                   and the --combine flag is not passed, a number will be appended to the name'.format(OUTPUT_FILENAME))
+parser.add_argument('--combined_json_key', type=str, default=OUTPUT_JSON_KEY,
+                   help='json key to use when multiple copies are combined \
+                   into a list, the default is {0}'.format(OUTPUT_JSON_KEY))
+
+args = parser.parse_args()
+
+
+
+#   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  Methods  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+def sanitize_template(template):
+    for replacement_pair in REPLACEMENT_PAIRS:
+        template = template.replace(replacement_pair[0], replacement_pair[1])
+    return template
+
+def keyword_count(template, keyword):
+    return template.count(KEYWORD_MARKER+keyword)
+
+def generate_random_values(template):
+    string_k = args.string_keyword
+    integer_k = args.integer_keyword
+    timestamp_k = args.time_keyword
+    return {
+        KEYWORD_MARKER+string_k: [get_random_string(args.length) for _ in range(keyword_count(template, string_k))],
+        KEYWORD_MARKER+integer_k: [get_random_integer(args.length) for _ in range(keyword_count(template, integer_k))],
+        KEYWORD_MARKER+timestamp_k: get_timestamp()
+    }
+
+def jsonify_template(template):
+    time.sleep(args.copy_sleep)
+
+    keyword_dict = generate_random_values(template)
+
+    try:
+        formatted_template = template.format(**keyword_dict)
+    except Exception as e:
+        print("Failed to create json, template format incorrect.")
+        print(e)
+        print("")
+        print(INSTRUCTIONS)
+        exit(1)
+
+    try:
+        return json.loads(formatted_template)
+    except Exception as e:
+        print("Failed to read template as json.")
+        print(e)
+        print(formatted_template)
+        exit(1)
+
+def save_template_as_json(template, file_name, copies):
+    if copies <= 1:
+        output = jsonify_template(template)
+    elif copies > 1:
+        output = {args.combined_json_key: [jsonify_template(template) for _ in range(copies)]}
+
+    with open(file_name, 'w') as json_output:
+        json_output.write(json.dumps(output, sort_keys=True, indent=4, separators=(',', ': ')))
+
+def save_template_copies(template, copies):
+    if not args.combine:
+        for i in range(1, copies+1):
+            save_template_as_json(copy.deepcopy(template), "{0}{1}{2}".format(args.filename, i, OUTPUT_EXTENSION), 1)
+    else:
+        save_template_as_json(template, "{0}{1}".format(args.filename, OUTPUT_EXTENSION), copies)
+
+def get_random_string(length):
+    charset = STRING_CHARSET
+
+    #TODO include newline if desired
+    if args.whitespace:
+        charset += " "
+    if args.digits:
+        charset += INTEGER_CHARSET
+    return ''.join(random.choice(charset) for _ in range(length))
+
+def get_random_integer(length):
+    first_charset = INTEGER_CHARSET.replace('0', '') #legal integers cannot start with a 0
+    return ''.join(random.choice(INTEGER_CHARSET) if _ != 0 else random.choice(first_charset) for _ in range(length))
+
+def get_timestamp():
+    return str(time.time())
+
+
+
+#   ~~~~~~~~~~~~~~~~~~~~~~~~~~~  Program Start  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+if __name__ == '__main__':
+
+    template = sanitize_template(args.json_template.read())
+
+    save_template_copies(template, args.copies)
+
+    exit(0)
+
